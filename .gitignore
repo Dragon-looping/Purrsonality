@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML models
+*.pth
+*.pt
+*.onnx
+
+# Python cache
+.pytest_cache/
