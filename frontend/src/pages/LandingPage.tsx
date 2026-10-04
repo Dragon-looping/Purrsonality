@@ -132,7 +132,7 @@ export const LandingPage: React.FC = () => {
           transition={{ delay: 0.25, duration: 0.5 }}
           className="font-body text-base sm:text-lg text-gray-300 max-w-lg mb-8 font-medium"
         >
-          Scan your face through the webcam to immediately uncover which legendary cat meme mirrors your current mood.
+          Real-time face-to-cat meme matching! Smile, gasp, squint, or snooze—watch your matching feline alter-ego update live on screen.
         </motion.p>
 
         {/* Primary CTA Button */}
@@ -146,10 +146,11 @@ export const LandingPage: React.FC = () => {
           <button
             onClick={handleStartScan}
             disabled={isLaunching}
-            className="neo-btn-pink text-xl sm:text-2xl md:text-3xl px-8 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Start live continuous cat meme comparison"
+            className="neo-btn-pink text-xl sm:text-2xl md:text-3xl px-8 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
           >
             <Camera className="w-7 h-7 sm:w-8 sm:h-8 group-hover:rotate-12 transition-transform" />
-            REVEAL MY PURRSONALITY
+            <span>START LIVE MATCH</span>
             <Zap className="w-6 h-6 sm:w-7 sm:h-7 text-brand-yellow fill-brand-yellow" />
           </button>
         </motion.div>
@@ -166,25 +167,25 @@ export const LandingPage: React.FC = () => {
             <span className="neo-badge bg-brand-lime text-black mb-2">STEP 1</span>
             <h3 className="font-heading text-2xl text-brand-yellow mt-1">CAMERA ON</h3>
             <p className="font-body text-xs text-gray-300 mt-1">
-              Position your face in front of the scanner. Real-time vision locks onto your expression.
+              Position your face in front of the lens. The continuous CV sensor locks onto your features.
             </p>
           </div>
 
           {/* Step 2 */}
           <div className="neo-card bg-[#231520] border-4 border-black shadow-hard rotate-[1deg] hover:rotate-0 transition-transform">
             <span className="neo-badge bg-brand-pink text-white mb-2">STEP 2</span>
-            <h3 className="font-heading text-2xl text-brand-pink mt-1">VIBE CHECK</h3>
+            <h3 className="font-heading text-2xl text-brand-pink mt-1">MAKE FACES</h3>
             <p className="font-body text-xs text-gray-300 mt-1">
-              Smile, drop your jaw, squint, or stay deadpan. Our facial feature geometry analyzes your look.
+              Smile, drop your jaw, squint, or stay deadpan. Watch your facial telemetry react live.
             </p>
           </div>
 
           {/* Step 3 */}
           <div className="neo-card bg-[#14231b] border-4 border-black shadow-hard rotate-[-1deg] hover:rotate-0 transition-transform">
             <span className="neo-badge bg-brand-yellow text-black mb-2">STEP 3</span>
-            <h3 className="font-heading text-2xl text-brand-lime mt-1">CAT MATCH</h3>
+            <h3 className="font-heading text-2xl text-brand-lime mt-1">LIVE CAT TWIN</h3>
             <p className="font-body text-xs text-gray-300 mt-1">
-              Instant match with your feline alter-ego from our curated local cat meme archive.
+              Your cat meme twin updates continuously side-by-side in real time as your mood shifts!
             </p>
           </div>
         </motion.div>

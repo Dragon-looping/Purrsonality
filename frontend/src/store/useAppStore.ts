@@ -70,8 +70,8 @@ export const useAppStore = create<AppState>((set) => ({
   scanError: null,
   isFinalized: false,
 
-  // Step 16 state defaults
-  liveMode: false,
+  // Live Mode is the primary continuous experience
+  liveMode: true,
   livePrediction: null,
   liveLoading: false,
   bbox: null,
@@ -108,6 +108,7 @@ export const useAppStore = create<AppState>((set) => ({
       predictResult: null,
       scanError: null,
       isFinalized: false,
+      liveMode: true,
       livePrediction: null,
       liveLoading: false,
       bbox: null,
