@@ -1,4 +1,5 @@
 import base64
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -85,8 +86,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS for local development with Vite frontend
-ALLOWED_ORIGINS = [
+# Configure CORS for local development and configurable production origins
+DEFAULT_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
@@ -94,6 +95,14 @@ ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+# Read CORS_ORIGINS from environment (comma-separated), e.g. "https://purrsonality.vercel.app,http://localhost:5173"
+cors_env = os.environ.get("CORS_ORIGINS", "")
+if cors_env.strip():
+    configured_origins = [origin.strip() for origin in cors_env.split(",") if origin.strip()]
+    ALLOWED_ORIGINS = list(dict.fromkeys(DEFAULT_ALLOWED_ORIGINS + configured_origins))
+else:
+    ALLOWED_ORIGINS = DEFAULT_ALLOWED_ORIGINS
 
 app.add_middleware(
     CORSMiddleware,
@@ -355,3 +364,10 @@ async def predict(payload: PredictRequest):
         ),
         frame_size=[width, height],
     )
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("backend.app.main:app", host="0.0.0.0", port=port, reload=False)

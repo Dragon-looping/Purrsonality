@@ -34,8 +34,12 @@ export interface PredictResponse {
   frame_size?: [number, number] | null;
 }
 
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const rawApiUrl: string =
+  (import.meta.env.VITE_API_URL as string | undefined) ||
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  "http://127.0.0.1:8000";
+
+export const API_BASE_URL = rawApiUrl.replace(/\/+$/, "");
 
 /**
  * Checks if the Python FastAPI CV backend is running and reachable.

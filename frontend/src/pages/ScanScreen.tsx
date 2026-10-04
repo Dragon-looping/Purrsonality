@@ -20,6 +20,7 @@ import {
   predictExpression,
   checkBackendHealth,
   getCatImageUrl,
+  API_BASE_URL,
 } from "../api/predict";
 import { ROTATING_LOADING_MESSAGES } from "../config/theme";
 import { ResultView } from "../components/ResultView";
@@ -348,7 +349,7 @@ export const ScanScreen: React.FC = () => {
             THE CAT UNPLUGGED THE SERVER.
           </h2>
           <p className="font-meme text-base sm:text-lg text-gray-200 max-w-md mb-6 font-bold">
-            Could not connect to the Purrsonality CV Engine at http://127.0.0.1:8000.
+            Could not connect to the Purrsonality CV Engine at {API_BASE_URL}.
             Make sure the FastAPI server is running with MediaPipe!
           </p>
           <button
@@ -559,7 +560,7 @@ export const ScanScreen: React.FC = () => {
             THE CAT UNPLUGGED THE SERVER.
           </h2>
           <p className="font-meme text-base sm:text-lg text-gray-200 max-w-md mb-6 font-bold">
-            Could not connect to the Purrsonality CV Engine at http://127.0.0.1:8000.
+            Could not connect to the Purrsonality CV Engine at {API_BASE_URL}.
             Make sure the FastAPI server is running with MediaPipe!
           </p>
           <button
