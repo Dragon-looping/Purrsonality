@@ -22,6 +22,13 @@ interface AppState {
   predictResult: PredictResponse | null;
   scanError: string | null;
 
+  // Step 16: Live Mode state
+  liveMode: boolean;
+  livePrediction: PredictResponse | null;
+  liveLoading: boolean;
+  bbox: [number, number, number, number] | null;
+  lastPredictionTime: number | null;
+
   // Actions
   setScreen: (screen: ScreenType) => void;
   setCameraState: (state: CameraState) => void;
@@ -35,9 +42,16 @@ interface AppState {
   toggleMute: () => void;
   resetScan: () => void;
 
+  // Live Mode actions
+  setLiveMode: (liveMode: boolean) => void;
+  toggleLiveMode: () => void;
+  setLivePrediction: (livePrediction: PredictResponse | null) => void;
+  setLiveLoading: (liveLoading: boolean) => void;
+  setBbox: (bbox: [number, number, number, number] | null) => void;
+  setLastPredictionTime: (time: number | null) => void;
+
   // Backward compatibility getters
   currentPrediction: Prediction[];
-  bbox: [number, number, number, number] | null;
   confidence: number;
 }
 
@@ -52,8 +66,15 @@ export const useAppStore = create<AppState>((set) => ({
   capturedImage: null,
   predictResult: null,
   scanError: null,
-  currentPrediction: [],
+
+  // Step 16 state defaults
+  liveMode: false,
+  livePrediction: null,
+  liveLoading: false,
   bbox: null,
+  lastPredictionTime: null,
+
+  currentPrediction: [],
   confidence: 0,
 
   setScreen: (currentScreen) => set({ currentScreen }),
@@ -82,8 +103,36 @@ export const useAppStore = create<AppState>((set) => ({
       capturedImage: null,
       predictResult: null,
       scanError: null,
-      currentPrediction: [],
+      livePrediction: null,
+      liveLoading: false,
       bbox: null,
+      currentPrediction: [],
       confidence: 0,
     }),
+
+  // Live actions
+  setLiveMode: (liveMode) =>
+    set({
+      liveMode,
+      // If turning live mode off, clear live prediction and bbox
+      ...(!liveMode ? { livePrediction: null, liveLoading: false, bbox: null } : {}),
+    }),
+  toggleLiveMode: () =>
+    set((state) => ({
+      liveMode: !state.liveMode,
+      ...(!state.liveMode ? {} : { livePrediction: null, liveLoading: false, bbox: null }),
+    })),
+  setLivePrediction: (livePrediction) => {
+    const firstPred = livePrediction?.predictions?.[0];
+    set({
+      livePrediction,
+      bbox: livePrediction?.bbox || null,
+      currentPrediction: livePrediction?.predictions || [],
+      confidence: firstPred?.confidence || 0,
+      lastPredictionTime: Date.now(),
+    });
+  },
+  setLiveLoading: (liveLoading) => set({ liveLoading }),
+  setBbox: (bbox) => set({ bbox }),
+  setLastPredictionTime: (lastPredictionTime) => set({ lastPredictionTime }),
 }));

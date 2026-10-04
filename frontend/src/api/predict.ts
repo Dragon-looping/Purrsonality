@@ -31,6 +31,7 @@ export interface PredictResponse {
   bbox: [number, number, number, number] | null;
   cat?: CatResult | null;
   features?: FacialFeatures | null;
+  frame_size?: [number, number] | null;
 }
 
 export const API_BASE_URL =
@@ -70,7 +71,8 @@ export function getCatImageUrl(cat?: CatResult | null): string | null {
  * landmark detection, feature calculation, expression classification, and meme matching.
  */
 export async function predictExpression(
-  imageDataUrl: string
+  imageDataUrl: string,
+  signal?: AbortSignal
 ): Promise<PredictResponse> {
   if (!imageDataUrl || typeof imageDataUrl !== "string") {
     throw new Error("Invalid webcam capture image data.");
@@ -84,6 +86,7 @@ export async function predictExpression(
     body: JSON.stringify({
       image: imageDataUrl,
     }),
+    signal,
   });
 
   if (!response.ok) {

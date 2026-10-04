@@ -149,6 +149,7 @@ class PredictResponse(BaseModel):
     bbox: Optional[List[int]] = None
     cat: Optional[CatResponse] = None
     features: Optional[FeaturesResponse] = None
+    frame_size: Optional[List[int]] = None
 
 
 # ==============================================================================
@@ -275,6 +276,7 @@ async def predict(payload: PredictRequest):
                 caption=no_face_cat.get("caption"),
             ),
             features=None,
+            frame_size=[width, height],
         )
 
     # 4. Extract landmarks and calculate geometric measurements
@@ -351,4 +353,5 @@ async def predict(payload: PredictRequest):
             mouth_width=round(mouth_width, 4),
             smile=round(smile, 4),
         ),
+        frame_size=[width, height],
     )
