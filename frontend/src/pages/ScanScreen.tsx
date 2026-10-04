@@ -18,8 +18,15 @@ import {
   checkBackendHealth,
   getCatImageUrl,
   API_BASE_URL,
+  type CatResult,
 } from "../api/predict";
 import { ROTATING_LOADING_MESSAGES } from "../config/theme";
+
+interface DisplayedCatMatch {
+  label: string;
+  cat: CatResult | null;
+  confidence: number;
+}
 
 export const ScanScreen: React.FC = () => {
   const {
@@ -46,6 +53,16 @@ export const ScanScreen: React.FC = () => {
   } = useWebcam();
 
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
+
+  // Stable displayed cat match state (separated from live prediction for 3-second hold)
+  const [displayedMatch, setDisplayedMatch] = useState<DisplayedCatMatch | null>(null);
+  const [isFacePresent, setIsFacePresent] = useState<boolean>(false);
+
+  // Stability management references
+  const lastCatChangeTimeRef = useRef<number>(0);
+  const pendingExpressionRef = useRef<string | null>(null);
+  const pendingCountRef = useRef<number>(0);
+  const noFaceStartTimeRef = useRef<number | null>(null);
 
   // References for live prediction loop lifecycle management
   const inFlightRef = useRef(false);
@@ -121,9 +138,87 @@ export const ScanScreen: React.FC = () => {
     try {
       const res = await predictExpression(frame, controller.signal);
       if (isMountedRef.current) {
+        // Always update live prediction for real-time bounding box & telemetry
         setLivePrediction(res);
         setBackendStatus("online");
         setScanError(null);
+
+        const hasFaceInFrame = Boolean(
+          res.predictions && res.predictions.length > 0
+        );
+        const now = Date.now();
+
+        if (hasFaceInFrame) {
+          // Face detected in current frame
+          noFaceStartTimeRef.current = null;
+          setIsFacePresent(true);
+
+          const firstPred = res.predictions[0];
+          const incomingLabel = firstPred.label;
+          const incomingCat = res.cat || null;
+          const incomingConfidence = firstPred.confidence;
+
+          // Stable Cat Match Update Logic with 3-Second Minimum Hold & 2-Frame Confirmation
+          setDisplayedMatch((prev) => {
+            // 1. Initial face detection or return from no-face: display immediately
+            if (!prev || lastCatChangeTimeRef.current === 0) {
+              lastCatChangeTimeRef.current = now;
+              pendingExpressionRef.current = null;
+              pendingCountRef.current = 0;
+              return {
+                label: incomingLabel,
+                cat: incomingCat,
+                confidence: incomingConfidence,
+              };
+            }
+
+            // 2. Incoming prediction matches the currently displayed cat: maintain display
+            if (incomingLabel === prev.label) {
+              pendingExpressionRef.current = null;
+              pendingCountRef.current = 0;
+              return prev;
+            }
+
+            // 3. Incoming prediction is different: track consistency and hold duration
+            if (pendingExpressionRef.current === incomingLabel) {
+              pendingCountRef.current += 1;
+            } else {
+              pendingExpressionRef.current = incomingLabel;
+              pendingCountRef.current = 1;
+            }
+
+            const timeSinceLastChange = now - lastCatChangeTimeRef.current;
+
+            // Minimum 3-second hold (3000ms) AND confirmed consistent signal (>= 2 consecutive frames)
+            if (timeSinceLastChange >= 3000 && pendingCountRef.current >= 2) {
+              lastCatChangeTimeRef.current = now;
+              pendingExpressionRef.current = null;
+              pendingCountRef.current = 0;
+              return {
+                label: incomingLabel,
+                cat: incomingCat,
+                confidence: incomingConfidence,
+              };
+            }
+
+            // Otherwise, hold the current cat during the 3-second window
+            return prev;
+          });
+        } else {
+          // No face detected in this frame: apply brief tolerance (300-500ms) before clearing
+          if (noFaceStartTimeRef.current === null) {
+            noFaceStartTimeRef.current = now;
+          } else {
+            const elapsedNoFace = now - noFaceStartTimeRef.current;
+            if (elapsedNoFace >= 450) {
+              setIsFacePresent(false);
+              setDisplayedMatch(null);
+              lastCatChangeTimeRef.current = 0;
+              pendingExpressionRef.current = null;
+              pendingCountRef.current = 0;
+            }
+          }
+        }
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -188,18 +283,23 @@ export const ScanScreen: React.FC = () => {
 
   // Back to home action
   const handleBackToHome = useCallback(() => {
+    setDisplayedMatch(null);
+    setIsFacePresent(false);
+    lastCatChangeTimeRef.current = 0;
+    pendingExpressionRef.current = null;
+    pendingCountRef.current = 0;
+    noFaceStartTimeRef.current = null;
     resetScan();
     setScreen("landing");
   }, [resetScan, setScreen]);
 
-  // Active prediction breakdown
-  const hasFace = Boolean(
-    livePrediction &&
-      Array.isArray(livePrediction.predictions) &&
-      livePrediction.predictions.length > 0
-  );
-  const activePrediction = livePrediction?.predictions?.[0];
-  const catImageUrl = getCatImageUrl(livePrediction?.cat);
+  // Active live prediction breakdown (telemetry, bounding box, live tag)
+  const activeLivePrediction = livePrediction?.predictions?.[0];
+
+  // Matched cat image URL for stable display
+  const displayedCatImageUrl = useMemo(() => {
+    return getCatImageUrl(displayedMatch?.cat);
+  }, [displayedMatch?.cat]);
 
   // Frame dimension scaling for bounding box
   const frameWidth =
@@ -211,17 +311,17 @@ export const ScanScreen: React.FC = () => {
     webcamRef.current?.video?.videoHeight ||
     480;
 
-  // Playful game score purrcentage calculation
+  // Playful game score purrcentage calculation based on the stable displayed match
   const purrcentage = useMemo(() => {
-    if (!activePrediction) return 0;
-    const base = Math.round(activePrediction.confidence * 100);
-    const label = activePrediction.label.toLowerCase();
+    if (!displayedMatch) return 0;
+    const base = Math.round(displayedMatch.confidence * 100);
+    const label = displayedMatch.label.toLowerCase();
     let bonus = 0;
     if (label === "happy") bonus = 3;
     if (label === "surprised") bonus = 2;
     if (label === "eyes closed") bonus = 1;
     return Math.min(99, Math.max(75, base + bonus));
-  }, [activePrediction]);
+  }, [displayedMatch]);
 
   return (
     <div className="min-h-[calc(100vh-65px)] p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center bg-noise overflow-x-hidden">
@@ -369,8 +469,8 @@ export const ScanScreen: React.FC = () => {
                 <div className="absolute bottom-2.5 left-2.5 w-6 h-6 border-b-3 border-l-3 border-brand-lime/80 z-20 pointer-events-none" />
                 <div className="absolute bottom-2.5 right-2.5 w-6 h-6 border-b-3 border-r-3 border-brand-lime/80 z-20 pointer-events-none" />
 
-                {/* LIVE BOUNDING BOX OVERLAY */}
-                {bbox && activePrediction && cameraState === "granted" && (
+                {/* LIVE BOUNDING BOX OVERLAY (Tracks user face in real-time) */}
+                {bbox && activeLivePrediction && isFacePresent && cameraState === "granted" && (
                   <motion.div
                     key="live-bbox"
                     initial={{ opacity: 0, scale: 0.96 }}
@@ -397,9 +497,9 @@ export const ScanScreen: React.FC = () => {
 
                     {/* Expression Tag on Bounding Box */}
                     <div className="absolute -top-6 left-0 bg-brand-lime text-black font-arcade text-[10px] px-2 py-0.5 border border-black shadow-hard-sm flex items-center gap-1 font-bold whitespace-nowrap">
-                      <span>🐱 {activePrediction.label.toUpperCase()}</span>
+                      <span>🐱 {activeLivePrediction.label.toUpperCase()}</span>
                       <span className="opacity-80">
-                        ({Math.round(activePrediction.confidence * 100)}%)
+                        ({Math.round(activeLivePrediction.confidence * 100)}%)
                       </span>
                     </div>
                   </motion.div>
@@ -439,24 +539,24 @@ export const ScanScreen: React.FC = () => {
 
             {/* Left Panel Bottom: Live Expression & Telemetry */}
             <div className="mt-4">
-              {hasFace && activePrediction ? (
+              {isFacePresent && activeLivePrediction ? (
                 <div className="space-y-2.5">
-                  {/* Detected Expression */}
+                  {/* Live Detected Expression */}
                   <div className="bg-[#0f0f1a] border-2 border-black p-2.5 shadow-hard-sm flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-mono text-gray-400 uppercase tracking-wider">
                         EXPRESSION:
                       </span>
                       <span className="font-heading text-2xl text-brand-yellow tracking-wide">
-                        {activePrediction.label.toUpperCase()}
+                        {activeLivePrediction.label.toUpperCase()}
                       </span>
                     </div>
                     <span className="font-arcade text-[10px] text-brand-lime bg-black/60 px-2 py-0.5 border border-brand-lime/40">
-                      CONFIDENCE: {Math.round(activePrediction.confidence * 100)}%
+                      CONFIDENCE: {Math.round(activeLivePrediction.confidence * 100)}%
                     </span>
                   </div>
 
-                  {/* Real-time Telemetry Metrics */}
+                  {/* Real-time Telemetry Metrics (EAR, MAR, SMILE update continuously) */}
                   {livePrediction?.features && (
                     <div className="grid grid-cols-3 gap-2 text-center font-mono">
                       <div className="bg-[#0e0e18] p-2 border-2 border-black shadow-hard-sm">
@@ -517,7 +617,7 @@ export const ScanScreen: React.FC = () => {
           </div>
 
           {/* ================================================================ */}
-          {/* RIGHT PANEL: "YOUR PURRSONALITY" / LIVE MATCHED CAT MEME         */}
+          {/* RIGHT PANEL: "YOUR PURRSONALITY" / STABLE MATCHED CAT MEME       */}
           {/* ================================================================ */}
           <div className="neo-card bg-[#161626] border-4 border-black p-4 sm:p-5 shadow-hard flex flex-col justify-between">
             <div>
@@ -532,47 +632,47 @@ export const ScanScreen: React.FC = () => {
                   </span>
                 </div>
                 <span className="text-[10px] font-mono text-brand-lime font-bold">
-                  LIVE SYNC
+                  3S MIN HOLD
                 </span>
               </div>
 
-              {/* Matched Cat Display or Searching State */}
-              {hasFace && activePrediction && catImageUrl ? (
+              {/* Matched Cat Display (Held for >= 3 seconds) or Searching State */}
+              {isFacePresent && displayedMatch && displayedCatImageUrl ? (
                 <div>
-                  {/* Matched Real Cat Meme Image */}
+                  {/* Stable Matched Real Cat Meme Image with Snappy Crossfade */}
                   <div className="relative w-full aspect-video sm:aspect-[4/3] bg-black border-3 border-black overflow-hidden flex items-center justify-center rounded-xs shadow-hard-sm mb-3">
                     <AnimatePresence mode="wait">
                       <motion.img
-                        key={catImageUrl}
-                        initial={{ opacity: 0.6, scale: 0.98 }}
+                        key={displayedCatImageUrl}
+                        initial={{ opacity: 0.4, scale: 0.98 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0.6 }}
-                        transition={{ duration: 0.2 }}
-                        src={catImageUrl}
-                        alt={livePrediction?.cat?.name || "Matched Cat Meme"}
+                        exit={{ opacity: 0.4, scale: 0.98 }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                        src={displayedCatImageUrl}
+                        alt={displayedMatch.cat?.name || "Matched Cat Meme"}
                         className="w-full h-full object-cover"
                       />
                     </AnimatePresence>
                     <div className="absolute inset-0 crt-scanlines pointer-events-none" />
                     <div className="absolute top-2 right-2 bg-brand-pink text-white font-arcade text-[10px] px-2 py-0.5 border border-black shadow-hard-sm">
-                      MATCH: {activePrediction.label.toUpperCase()}
+                      MATCH: {displayedMatch.label.toUpperCase()}
                     </div>
                   </div>
 
                   {/* Cat Name & Caption Box */}
                   <div className="bg-[#10101b] border-2 border-black p-3 shadow-hard-sm mb-3">
                     <h4 className="font-heading text-2xl text-brand-pink tracking-wide truncate">
-                      {livePrediction?.cat?.name || `${activePrediction.label} Cat`}
+                      {displayedMatch.cat?.name || `${displayedMatch.label} Cat`}
                     </h4>
-                    {livePrediction?.cat?.caption && (
+                    {displayedMatch.cat?.caption && (
                       <p className="font-meme text-xs sm:text-sm text-gray-200 font-bold italic mt-1 line-clamp-2">
-                        "{livePrediction.cat.caption}"
+                        "{displayedMatch.cat.caption}"
                       </p>
                     )}
                   </div>
                 </div>
               ) : (
-                /* No Prediction / Searching For Your Cat State */
+                /* No Face / Searching For Your Cat State (with brief 450ms tolerance to prevent flashing) */
                 <div className="w-full aspect-video sm:aspect-[4/3] flex flex-col items-center justify-center text-center p-6 bg-[#0f0f1b] border-3 border-black border-dashed mb-3">
                   <motion.div
                     animate={{ rotate: [0, 8, -8, 0] }}
@@ -603,21 +703,21 @@ export const ScanScreen: React.FC = () => {
               )}
             </div>
 
-            {/* Right Panel Bottom: Playful Purrcentage / Game Score */}
+            {/* Right Panel Bottom: Playful Purrcentage / Game Score based on displayed cat */}
             <div className="mt-1">
               <div className="bg-[#0e0e18] border-2 border-black p-3 shadow-hard-sm">
                 <div className="flex items-center justify-between text-xs font-arcade">
                   <span className="text-gray-300">PURR-CENTAGE:</span>
                   <span className="text-brand-lime font-bold text-base">
-                    {hasFace ? `${purrcentage}%` : "--"}
+                    {isFacePresent && displayedMatch ? `${purrcentage}%` : "--"}
                   </span>
                 </div>
                 <div className="w-full bg-black h-2.5 border border-black mt-1.5 overflow-hidden">
                   <motion.div
                     className="bg-brand-lime h-full"
                     initial={{ width: 0 }}
-                    animate={{ width: hasFace ? `${purrcentage}%` : "0%" }}
-                    transition={{ duration: 0.4 }}
+                    animate={{ width: isFacePresent && displayedMatch ? `${purrcentage}%` : "0%" }}
+                    transition={{ duration: 0.35 }}
                   />
                 </div>
                 <span className="block text-[10px] font-mono text-gray-400 mt-1.5">
