@@ -5,14 +5,16 @@ import { useAppStore } from "../store/useAppStore";
 import { RocketTransition } from "../components/RocketTransition";
 
 export const LandingPage: React.FC = () => {
-  const { setScreen, isLaunching, setIsLaunching } = useAppStore();
+  const { setScreen, isLaunching, setIsLaunching, resetScan } = useAppStore();
 
   const handleStartScan = () => {
     if (isLaunching) return;
+    resetScan();
     setIsLaunching(true);
   };
 
   const handleLaunchComplete = () => {
+    resetScan();
     setIsLaunching(false);
     setScreen("scan");
   };

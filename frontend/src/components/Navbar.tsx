@@ -4,19 +4,24 @@ import { Volume2, VolumeX, ArrowLeft } from "lucide-react";
 import { useAppStore } from "../store/useAppStore";
 
 export const Navbar: React.FC = () => {
-  const { currentScreen, setScreen, isMuted, toggleMute, isLaunching } =
+  const { currentScreen, setScreen, isMuted, toggleMute, isLaunching, resetScan } =
     useAppStore();
+
+  const handleGoHome = () => {
+    if (!isLaunching) {
+      resetScan();
+      setScreen("landing");
+    }
+  };
 
   return (
     <header className="w-full bg-[#12121c] border-b-4 border-black px-4 py-3 sticky top-0 z-40 select-none">
       <div className="max-w-6xl mx-auto flex items-center justify-between">
         {/* Left: 🐱 PURRSONALITY Wordmark with animated cat ear/tail */}
         <button
-          onClick={() => {
-            if (!isLaunching) setScreen("landing");
-          }}
+          onClick={handleGoHome}
           disabled={isLaunching}
-          className="flex items-center gap-2.5 text-left cursor-pointer focus:outline-none group disabled:opacity-70"
+          className="flex items-center gap-2.5 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-lime group disabled:opacity-70"
           aria-label="Purrsonality Home"
         >
           {/* Animated Cat Icon with Wagging Tail / Twitching Ears */}
@@ -47,8 +52,8 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center gap-3">
           {currentScreen === "scan" && (
             <button
-              onClick={() => setScreen("landing")}
-              className="px-3.5 py-1.5 text-xs font-bold font-mono uppercase bg-white text-black border-3 border-black shadow-hard-sm hover:bg-gray-100 active:translate-x-0.5 active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer transition-transform"
+              onClick={handleGoHome}
+              className="px-3.5 py-1.5 text-xs font-bold font-mono uppercase bg-white text-black border-3 border-black shadow-hard-sm hover:bg-gray-100 active:translate-x-0.5 active:translate-y-0.5 flex items-center gap-1.5 cursor-pointer transition-transform focus-visible:ring-2 focus-visible:ring-brand-lime"
               aria-label="Return to home landing page"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -60,7 +65,7 @@ export const Navbar: React.FC = () => {
           <button
             onClick={toggleMute}
             aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-            className="p-2 bg-[#202030] text-white border-3 border-black shadow-hard-sm hover:bg-[#2b2b3f] active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer"
+            className="p-2 bg-[#202030] text-white border-3 border-black shadow-hard-sm hover:bg-[#2b2b3f] active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-brand-lime"
           >
             {isMuted ? (
               <VolumeX className="w-4 h-4 text-brand-pink" />

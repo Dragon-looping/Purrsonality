@@ -61,6 +61,7 @@ export const ScanScreen: React.FC = () => {
   } = useWebcam();
 
   const [loadingPhraseIndex, setLoadingPhraseIndex] = useState(0);
+  const [isLockingIn, setIsLockingIn] = useState(false);
 
   // References for live prediction loop lifecycle management
   const inFlightRef = useRef(false);
@@ -144,7 +145,7 @@ export const ScanScreen: React.FC = () => {
       }
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
-        return; // Request was aborted as expected
+        return; // Request was aborted cleanly
       }
       if (isMountedRef.current && liveMode && !isFinalized) {
         const message = err instanceof Error ? err.message : String(err);
@@ -208,14 +209,51 @@ export const ScanScreen: React.FC = () => {
     };
   }, [liveMode, cameraState, scanError, isFinalized, runLiveIteration, setLiveLoading]);
 
-  // Lock in the live result and transition to polished Result View
+  // Return to scanner and reset state
+  const handleScanAgain = useCallback(() => {
+    setIsLockingIn(false);
+    resetScan();
+  }, [resetScan]);
+
+  // Return to home landing page
+  const handleBackToHome = useCallback(() => {
+    setIsLockingIn(false);
+    resetScan();
+    setScreen("landing");
+  }, [resetScan, setScreen]);
+
+  // Lock in the live result and transition to polished Result View (Section 3 Hardening)
   const handleLockInLive = useCallback(() => {
-    if (!livePrediction || livePrediction.predictions.length === 0) return;
+    if (
+      isLockingIn ||
+      isFinalized ||
+      !livePrediction ||
+      !Array.isArray(livePrediction.predictions) ||
+      livePrediction.predictions.length === 0
+    ) {
+      return;
+    }
+
+    setIsLockingIn(true);
+
+    // Cancel active live intervals and in-flight requests immediately
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    inFlightRef.current = false;
+
     const frame = captureFrame() || capturedImage;
     setCapturedImage(frame);
     setPredictResult(livePrediction);
     setIsFinalized(true);
   }, [
+    isLockingIn,
+    isFinalized,
     livePrediction,
     captureFrame,
     capturedImage,
@@ -226,7 +264,7 @@ export const ScanScreen: React.FC = () => {
 
   // SNAP action: captures one frame and requests single prediction from FastAPI
   const handleSnapAndPredict = useCallback(async () => {
-    if (isAnalyzing || cameraState !== "granted") return;
+    if (isAnalyzing || cameraState !== "granted" || isLockingIn) return;
     setScanError(null);
 
     const frame = captureFrame();
@@ -262,6 +300,7 @@ export const ScanScreen: React.FC = () => {
   }, [
     isAnalyzing,
     cameraState,
+    isLockingIn,
     captureFrame,
     setCapturedImage,
     setIsAnalyzing,
@@ -271,7 +310,9 @@ export const ScanScreen: React.FC = () => {
   ]);
 
   const hasValidLiveFace = Boolean(
-    livePrediction && livePrediction.predictions.length > 0
+    livePrediction &&
+      Array.isArray(livePrediction.predictions) &&
+      livePrediction.predictions.length > 0
   );
 
   const activeLivePrediction = livePrediction?.predictions?.[0];
@@ -311,11 +352,12 @@ export const ScanScreen: React.FC = () => {
             Make sure the FastAPI server is running with MediaPipe!
           </p>
           <button
-            onClick={resetScan}
-            className="neo-btn-lime px-8 py-3.5 text-lg font-heading tracking-wide border-3 border-black shadow-hard hover:shadow-hard-lg cursor-pointer"
+            onClick={handleScanAgain}
+            aria-label="Try reconnecting to the CV engine"
+            className="neo-btn-lime px-8 py-3.5 text-lg font-heading tracking-wide border-3 border-black shadow-hard hover:shadow-hard-lg cursor-pointer min-h-[44px] flex items-center gap-2"
           >
-            <RotateCcw className="w-5 h-5 mr-2" />
-            TRY AGAIN
+            <RotateCcw className="w-5 h-5 mr-1" />
+            <span>TRY AGAIN</span>
           </button>
         </motion.div>
       );
@@ -346,18 +388,19 @@ export const ScanScreen: React.FC = () => {
             <div className="w-48 aspect-video bg-black border-3 border-black mb-6 overflow-hidden shadow-hard-sm">
               <img
                 src={capturedImage}
-                alt="Captured frame with no face"
+                alt="Captured frame with no face detected"
                 className="w-full h-full object-cover opacity-60 grayscale"
               />
             </div>
           )}
 
           <button
-            onClick={resetScan}
-            className="neo-btn-pink px-8 py-4 text-xl font-heading tracking-wide border-4 border-black shadow-hard-lg hover:shadow-hard-xl cursor-pointer"
+            onClick={handleScanAgain}
+            aria-label="Try scanning your face again"
+            className="neo-btn-pink px-8 py-4 text-xl font-heading tracking-wide border-4 border-black shadow-hard-lg hover:shadow-hard-xl cursor-pointer min-h-[44px] flex items-center gap-2"
           >
-            <RotateCcw className="w-6 h-6 mr-2" />
-            SCAN AGAIN
+            <RotateCcw className="w-6 h-6 mr-1" />
+            <span>SCAN AGAIN</span>
           </button>
         </motion.div>
       );
@@ -480,7 +523,8 @@ export const ScanScreen: React.FC = () => {
           <button
             onClick={handleSnapAndPredict}
             disabled={isAnalyzing || cameraState !== "granted"}
-            className="neo-btn-pink text-xl sm:text-2xl px-10 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
+            aria-label="Capture snapshot and reveal your cat meme match"
+            className="neo-btn-pink text-xl sm:text-2xl px-10 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 min-h-[48px]"
           >
             <Camera className="w-7 h-7 group-hover:rotate-12 transition-transform" />
             <span>REVEAL MY PURRSONALITY</span>
@@ -523,10 +567,11 @@ export const ScanScreen: React.FC = () => {
               setScanError(null);
               runLiveIteration();
             }}
-            className="neo-btn-lime px-8 py-3.5 text-lg font-heading tracking-wide border-3 border-black shadow-hard hover:shadow-hard-lg cursor-pointer"
+            aria-label="Try reconnecting to the CV engine"
+            className="neo-btn-lime px-8 py-3.5 text-lg font-heading tracking-wide border-3 border-black shadow-hard hover:shadow-hard-lg cursor-pointer min-h-[44px] flex items-center gap-2"
           >
-            <RotateCcw className="w-5 h-5 mr-2" />
-            TRY AGAIN
+            <RotateCcw className="w-5 h-5 mr-1" />
+            <span>TRY AGAIN</span>
           </button>
         </motion.div>
       );
@@ -712,18 +757,18 @@ export const ScanScreen: React.FC = () => {
                       <span className="text-[10px] font-mono text-gray-400 uppercase tracking-widest block">
                         DETECTED EXPRESSION
                       </span>
-                      <h3 className="font-heading text-2xl sm:text-3xl text-brand-yellow tracking-wide">
+                      <h3 className="font-heading text-2xl sm:text-3xl text-brand-yellow tracking-wide truncate">
                         {activeLivePrediction.label.toUpperCase()}
                       </h3>
                     </div>
 
                     {/* Cat Name & Caption */}
                     <div className="bg-[#12121d] border-2 border-black p-2.5 shadow-hard-sm mb-3">
-                      <h4 className="font-heading text-xl text-brand-pink">
+                      <h4 className="font-heading text-xl text-brand-pink truncate">
                         {livePrediction?.cat?.name || `${activeLivePrediction.label} Cat`}
                       </h4>
                       {livePrediction?.cat?.caption && (
-                        <p className="font-meme text-xs sm:text-sm text-gray-300 font-bold italic mt-0.5">
+                        <p className="font-meme text-xs sm:text-sm text-gray-300 font-bold italic mt-0.5 line-clamp-2">
                           "{livePrediction.cat.caption}"
                         </p>
                       )}
@@ -738,8 +783,11 @@ export const ScanScreen: React.FC = () => {
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ duration: 0.2 }}
                           src={liveCatImageUrl}
-                          alt={livePrediction?.cat?.name || "Matched Cat Meme"}
+                          alt={`Live preview cat meme: ${livePrediction?.cat?.name || "Cat Meme"}`}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = "none";
+                          }}
                         />
                       ) : (
                         <div className="text-gray-400 font-mono text-xs p-4 text-center">
@@ -804,15 +852,18 @@ export const ScanScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* STEP 17: Prominent "LOCK IT IN // REVEAL MY PURRSONALITY" Button */}
+        {/* STEP 17/18: Prominent Hardened "LOCK IT IN // REVEAL MY PURRSONALITY" Button */}
         <div className="mt-6 flex flex-col items-center w-full max-w-2xl">
           <button
             onClick={handleLockInLive}
-            disabled={!hasValidLiveFace || cameraState !== "granted"}
-            className="neo-btn-pink text-xl sm:text-2xl px-10 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 w-full"
+            disabled={!hasValidLiveFace || cameraState !== "granted" || isLockingIn || isFinalized}
+            aria-label="Lock in your current facial expression and reveal your cat match"
+            className="neo-btn-pink text-xl sm:text-2xl px-10 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 w-full min-h-[48px]"
           >
             <Sparkles className="w-7 h-7 group-hover:rotate-12 transition-transform" />
-            <span>LOCK IT IN // REVEAL MY PURRSONALITY</span>
+            <span>
+              {isLockingIn ? "LOCKING IN VIBE..." : "LOCK IT IN // REVEAL MY PURRSONALITY"}
+            </span>
             <Zap className="w-6 h-6 text-brand-yellow fill-brand-yellow animate-pulse" />
           </button>
           {!hasValidLiveFace && cameraState === "granted" && (
@@ -826,16 +877,14 @@ export const ScanScreen: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-65px)] p-4 md:p-8 flex flex-col items-center justify-center bg-noise">
+    <div className="min-h-[calc(100vh-65px)] p-4 md:p-8 flex flex-col items-center justify-center bg-noise overflow-x-hidden">
       {/* Top Header Bar */}
       <div className="w-full max-w-4xl flex flex-wrap items-center justify-between gap-3 mb-4">
         {/* Back to Home Button */}
         <button
-          onClick={() => {
-            resetScan();
-            setScreen("landing");
-          }}
-          className="neo-btn bg-white text-black py-2 px-4 text-xs font-arcade hover:bg-gray-100 transition-transform active:translate-x-0.5 active:translate-y-0.5 cursor-pointer"
+          onClick={handleBackToHome}
+          aria-label="Return to landing page"
+          className="neo-btn bg-white text-black py-2 px-4 text-xs font-arcade hover:bg-gray-100 transition-transform active:translate-x-0.5 active:translate-y-0.5 cursor-pointer min-h-[44px]"
         >
           <ArrowLeft className="w-4 h-4" />
           BACK TO HOME
@@ -846,7 +895,8 @@ export const ScanScreen: React.FC = () => {
           <div className="flex items-center gap-1.5 bg-[#12121d] p-1 border-3 border-black shadow-hard-sm">
             <button
               onClick={() => setLiveMode(true)}
-              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              aria-label="Switch to continuous live CV stream mode"
+              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
                 liveMode
                   ? "bg-brand-lime text-black font-bold shadow-hard-sm"
                   : "bg-transparent text-gray-400 hover:text-white"
@@ -865,7 +915,8 @@ export const ScanScreen: React.FC = () => {
 
             <button
               onClick={() => setLiveMode(false)}
-              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
+              aria-label="Switch to 1-shot snapshot scan mode"
+              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
                 !liveMode
                   ? "bg-brand-pink text-white font-bold shadow-hard-sm"
                   : "bg-transparent text-gray-400 hover:text-white"
@@ -920,7 +971,7 @@ export const ScanScreen: React.FC = () => {
               <ResultView
                 predictResult={predictResult}
                 capturedImage={capturedImage}
-                onScanAgain={resetScan}
+                onScanAgain={handleScanAgain}
               />
             </motion.div>
           ) : liveMode ? (

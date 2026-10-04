@@ -8,6 +8,7 @@ import {
   Sparkles,
   Flame,
   Award,
+  AlertTriangle,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { toPng } from "html-to-image";
@@ -16,7 +17,7 @@ import { getCatImageUrl } from "../api/predict";
 import { getExpressionBlurb } from "../config/theme";
 
 interface ResultViewProps {
-  predictResult: PredictResponse;
+  predictResult?: PredictResponse | null;
   capturedImage: string | null;
   onScanAgain: () => void;
 }
@@ -25,7 +26,7 @@ const PurrcentageCounter: React.FC<{ target: number }> = ({ target }) => {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
-    const duration = 1200;
+    const duration = 1100;
     const startTime = performance.now();
 
     const updateCount = (currentTime: number) => {
@@ -53,54 +54,114 @@ export const ResultView: React.FC<ResultViewProps> = ({
   capturedImage,
   onScanAgain,
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [showFlash, setShowFlash] = useState(true);
   const exportCardRef = useRef<HTMLDivElement>(null);
 
-  const activePrediction = predictResult.predictions[0];
-  const cat = predictResult.cat;
-  const label = activePrediction?.label || "Unknown";
-  const catName = cat?.name || `${label} Cat`;
-  const catCaption = cat?.caption || "Living my best nine lives.";
-  const catImageUrl = getCatImageUrl(cat);
-  const purrcentage = Math.round((activePrediction?.confidence || 0.95) * 100);
-  const blurb = getExpressionBlurb(label);
-
-  // Trigger screen flash and confetti on dramatic reveal
+  // Trigger screen flash and confetti on mount
   useEffect(() => {
-    // Fade out screen flash
-    const flashTimer = setTimeout(() => setShowFlash(false), 350);
+    const flashTimer = setTimeout(() => setShowFlash(false), 320);
 
-    // Launch arcade celebration confetti
     try {
       confetti({
-        particleCount: 90,
+        particleCount: 85,
         spread: 80,
         origin: { y: 0.55 },
         colors: ["#FF2E93", "#C6FF00", "#FFE600", "#7B2FFF"],
       });
     } catch {
-      // Fallback
+      // Fallback if canvas context is blocked
     }
 
     return () => clearTimeout(flashTimer);
   }, []);
 
+  // 1. Guard against missing or corrupt result data (Section 4)
+  if (
+    !predictResult ||
+    !Array.isArray(predictResult.predictions) ||
+    predictResult.predictions.length === 0
+  ) {
+    return (
+      <div className="w-full max-w-xl mx-auto neo-card bg-[#141420] border-4 border-black p-6 sm:p-8 text-center shadow-hard-xl">
+        <div className="text-6xl mb-4 select-none">😿</div>
+        <div className="inline-block bg-brand-pink text-white font-arcade text-xs px-3 py-1 border-3 border-black shadow-hard-sm mb-3 rotate-[-1deg]">
+          DATA MISMATCH
+        </div>
+        <h2 className="font-heading text-3xl sm:text-4xl text-brand-pink mb-3 tracking-wide">
+          THE CATS LOST YOUR RESULT
+        </h2>
+        <p className="font-meme text-base text-gray-300 font-bold mb-6">
+          Something went sideways in the cat council archives. Let's try that scan one more time!
+        </p>
+        <button
+          onClick={onScanAgain}
+          aria-label="Scan your face again"
+          className="neo-btn-lime px-8 py-3.5 text-lg font-heading tracking-wide border-4 border-black shadow-hard hover:shadow-hard-lg cursor-pointer inline-flex items-center gap-2"
+        >
+          <RotateCcw className="w-5 h-5 mr-1" />
+          <span>SCAN AGAIN</span>
+        </button>
+      </div>
+    );
+  }
+
+  const activePrediction = predictResult.predictions[0];
+  const cat = predictResult.cat;
+  const label = activePrediction?.label || "Neutral";
+  const catName = cat?.name || `${label} Cat`;
+  const catCaption = cat?.caption || "Living nine chaotic lives with zero regrets.";
+  const catImageUrl = getCatImageUrl(cat);
+  const confidenceScore =
+    typeof activePrediction?.confidence === "number" && !isNaN(activePrediction.confidence)
+      ? activePrediction.confidence
+      : 0.95;
+  const purrcentage = Math.round(confidenceScore * 100);
+  const blurb = getExpressionBlurb(label);
+
+  // 2. Safe Clipboard Action (Section 6)
   const handleCopy = async () => {
     const text = `I got ${label.toUpperCase()} on Purrsonality 🐱\nCat match: ${catName}\nPurrcentage: ${purrcentage}%`;
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopyStatus("copied");
+        setTimeout(() => setCopyStatus("idle"), 2400);
+        return;
+      }
+      throw new Error("Clipboard API not available");
     } catch {
-      // Fallback
+      // Fallback copy using hidden textarea
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand("copy");
+        document.body.removeChild(textArea);
+        if (success) {
+          setCopyStatus("copied");
+          setTimeout(() => setCopyStatus("idle"), 2400);
+          return;
+        }
+      } catch {
+        // Fallback
+      }
+      setCopyStatus("failed");
+      setTimeout(() => setCopyStatus("idle"), 3000);
     }
   };
 
+  // 3. Safe Image Export Action (Section 7)
   const handleSaveImage = async () => {
     if (!exportCardRef.current || isSaving) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       const dataUrl = await toPng(exportCardRef.current, {
         cacheBust: true,
@@ -108,11 +169,13 @@ export const ResultView: React.FC<ResultViewProps> = ({
         backgroundColor: "#141420",
       });
       const link = document.createElement("a");
-      link.download = `purrsonality-${label.toLowerCase()}-result.png`;
+      const cleanSlug = label.toLowerCase().replace(/[^a-z0-9_-]/g, "-");
+      link.download = `purrsonality-${cleanSlug}-result.png`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
       console.error("Failed to export result card image:", err);
+      setSaveError("THE CAT ATE THE DOWNLOAD");
     } finally {
       setIsSaving(false);
     }
@@ -120,22 +183,22 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
   return (
     <div className="relative w-full flex flex-col items-center">
-      {/* 1. Dramatic Screen Flash Overlay */}
+      {/* Dramatic Screen Flash */}
       {showFlash && (
         <motion.div
           initial={{ opacity: 0.95 }}
           animate={{ opacity: 0 }}
-          transition={{ duration: 0.35, ease: "easeOut" }}
+          transition={{ duration: 0.32, ease: "easeOut" }}
           className="fixed inset-0 bg-white z-50 pointer-events-none"
         />
       )}
 
-      {/* 2. Main Exportable Result Card Container */}
+      {/* Main Exportable Result Card */}
       <div
         ref={exportCardRef}
-        className="w-full max-w-3xl flex flex-col items-center p-3 sm:p-5 md:p-6 bg-[#141420] border-4 border-black shadow-hard-xl rounded-none text-center"
+        className="w-full max-w-3xl flex flex-col items-center p-4 sm:p-6 md:p-8 bg-[#141420] border-4 border-black shadow-hard-xl rounded-none text-center"
       >
-        {/* TOP: Header Banner */}
+        {/* Top: Header Sticker */}
         <motion.div
           initial={{ y: -20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
@@ -147,7 +210,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
           <Award className="w-4 h-4 text-black" />
         </motion.div>
 
-        {/* MAIN: YOU ARE: [EXPRESSION] */}
+        {/* Main: YOU ARE: [EXPRESSION] */}
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -157,19 +220,19 @@ export const ResultView: React.FC<ResultViewProps> = ({
             damping: 18,
             delay: 0.1,
           }}
-          className="mb-3"
+          className="mb-3 max-w-full"
         >
           <span className="font-arcade text-xs sm:text-sm text-brand-lime tracking-widest block mb-0.5">
             YOU ARE:
           </span>
-          <h1 className="font-heading text-4xl sm:text-6xl md:text-7xl text-white tracking-wider leading-none drop-shadow-[4px_4px_0px_#000000]">
+          <h1 className="font-heading text-4xl sm:text-6xl md:text-7xl text-white tracking-wider leading-none drop-shadow-[4px_4px_0px_#000000] break-words">
             <span className="text-brand-pink underline decoration-brand-yellow decoration-4 underline-offset-4">
               {label.toUpperCase()}
             </span>
           </h1>
         </motion.div>
 
-        {/* PURR-CENTAGE SCORE BADGE */}
+        {/* PURR-CENTAGE SCORE BADGE with Game Score Disclaimer (Section 5) */}
         <motion.div
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -179,7 +242,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
             damping: 16,
             delay: 0.2,
           }}
-          className="mb-4 inline-flex items-center gap-3 bg-[#1d1d2e] border-3 border-black px-4 py-1.5 shadow-hard-sm rotate-[1.5deg]"
+          className="mb-4 inline-flex flex-wrap items-center justify-center gap-2.5 bg-[#1d1d2e] border-3 border-black px-4 py-1.5 shadow-hard-sm rotate-[1.5deg]"
         >
           <div className="flex items-center gap-1.5 font-arcade text-xs sm:text-sm text-brand-yellow font-bold">
             <Flame className="w-4 h-4 text-brand-pink fill-brand-pink" />
@@ -188,23 +251,26 @@ export const ResultView: React.FC<ResultViewProps> = ({
           <span className="font-heading text-2xl sm:text-3xl text-brand-lime font-bold tracking-wider">
             <PurrcentageCounter target={purrcentage} />
           </span>
+          <span className="bg-black/70 text-brand-lime font-mono text-[9px] px-2 py-0.5 border border-brand-lime/40 uppercase tracking-wider font-semibold">
+            GAME SCORE // FOR FUN
+          </span>
         </motion.div>
 
-        {/* PERSONALITY BLURB STICKER */}
+        {/* Personality Blurb Sticker */}
         <motion.div
           initial={{ y: 15, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.25, duration: 0.4 }}
-          className="w-full max-w-xl bg-[#1b1828] border-3 border-black p-3 shadow-hard-sm mb-5 rotate-[-0.5deg]"
+          className="w-full max-w-xl bg-[#1b1828] border-3 border-black p-3.5 shadow-hard-sm mb-5 rotate-[-0.5deg]"
         >
           <p className="font-meme text-sm sm:text-base text-gray-200 font-bold italic leading-relaxed">
             "{blurb}"
           </p>
         </motion.div>
 
-        {/* CENTER: VS-STYLE COMPARISON (RESPONSIVE: SIDE-BY-SIDE ON DESKTOP, STACKED ON MOBILE) */}
+        {/* Center: VS-Style Comparison */}
         <div className="w-full grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-6 my-2">
-          {/* Left: User Snapshot Card */}
+          {/* User Snapshot Card */}
           <motion.div
             initial={{ x: -40, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -229,20 +295,21 @@ export const ResultView: React.FC<ResultViewProps> = ({
               {capturedImage ? (
                 <img
                   src={capturedImage}
-                  alt="Your Captured Face"
+                  alt={`Your captured facial expression: ${label}`}
                   crossOrigin="anonymous"
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <div className="text-gray-400 font-mono text-xs">
-                  No frame captured
+                <div className="text-gray-400 font-mono text-xs flex flex-col items-center justify-center p-4">
+                  <span className="text-2xl mb-1">📸</span>
+                  <span>NO FRAME CAPTURED</span>
                 </div>
               )}
               <div className="absolute inset-0 crt-scanlines pointer-events-none" />
             </div>
           </motion.div>
 
-          {/* Center: Large Neon VS Badge */}
+          {/* Large Neon VS Badge */}
           <motion.div
             initial={{ scale: 0, rotate: -180 }}
             animate={{ scale: 1, rotate: -6 }}
@@ -261,7 +328,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
             </div>
           </motion.div>
 
-          {/* Right: Matched Real Cat Meme Card */}
+          {/* Matched Real Cat Meme Card */}
           <motion.div
             initial={{ x: 40, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
@@ -286,13 +353,17 @@ export const ResultView: React.FC<ResultViewProps> = ({
               {catImageUrl ? (
                 <img
                   src={catImageUrl}
-                  alt={catName}
+                  alt={`Matched cat meme: ${catName}`}
                   crossOrigin="anonymous"
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = "none";
+                  }}
                 />
               ) : (
-                <div className="p-4 text-center text-gray-400 font-mono text-xs">
-                  No local cat image found
+                <div className="p-4 text-center text-gray-400 font-mono text-xs flex flex-col items-center justify-center h-full">
+                  <span className="text-3xl mb-1">🐱</span>
+                  <span>CAT MEME IMAGE UNAVAILABLE</span>
                 </div>
               )}
               <div className="absolute inset-0 crt-scanlines pointer-events-none" />
@@ -300,7 +371,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
             {/* Cat Name & Caption */}
             <div className="w-full bg-[#12121d] border-2 border-black p-2 mt-2 text-center">
-              <h4 className="font-heading text-lg sm:text-xl text-brand-pink leading-tight">
+              <h4 className="font-heading text-lg sm:text-xl text-brand-pink leading-tight truncate">
                 {catName}
               </h4>
               <p className="font-meme text-xs text-gray-300 font-bold italic mt-0.5 line-clamp-2">
@@ -316,7 +387,15 @@ export const ResultView: React.FC<ResultViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Action Buttons */}
+      {/* Save Error Notice */}
+      {saveError && (
+        <div className="w-full max-w-md mt-4 bg-[#2e121c] border-3 border-brand-pink p-3 text-center text-xs font-arcade text-brand-pink shadow-hard-sm flex items-center justify-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-brand-pink" />
+          <span>{saveError}. PLEASE TRY AGAIN!</span>
+        </div>
+      )}
+
+      {/* Action Buttons */}
       <motion.div
         initial={{ y: 20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -326,7 +405,8 @@ export const ResultView: React.FC<ResultViewProps> = ({
         {/* Scan Again Button */}
         <button
           onClick={onScanAgain}
-          className="neo-btn-pink text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer group flex items-center gap-2"
+          aria-label="Return to live camera and scan again"
+          className="neo-btn-pink text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer group flex items-center gap-2 min-h-[44px]"
         >
           <RotateCcw className="w-5 h-5 group-hover:-rotate-90 transition-transform" />
           <span>SCAN AGAIN</span>
@@ -335,12 +415,18 @@ export const ResultView: React.FC<ResultViewProps> = ({
         {/* Copy Result Button */}
         <button
           onClick={handleCopy}
-          className="neo-btn-yellow text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer flex items-center gap-2"
+          aria-label="Copy result summary to clipboard"
+          className="neo-btn-yellow text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer flex items-center gap-2 min-h-[44px]"
         >
-          {copied ? (
+          {copyStatus === "copied" ? (
             <>
               <Check className="w-5 h-5 text-black" />
               <span>COPIED! ✨</span>
+            </>
+          ) : copyStatus === "failed" ? (
+            <>
+              <AlertTriangle className="w-5 h-5 text-black" />
+              <span>COULD NOT COPY</span>
             </>
           ) : (
             <>
@@ -354,7 +440,8 @@ export const ResultView: React.FC<ResultViewProps> = ({
         <button
           onClick={handleSaveImage}
           disabled={isSaving}
-          className="neo-btn bg-brand-lime text-black text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+          aria-label="Download result card image as PNG"
+          className="neo-btn bg-brand-lime text-black text-base sm:text-lg px-6 py-3.5 border-4 border-black shadow-hard hover:shadow-hard-lg transition-all cursor-pointer flex items-center gap-2 min-h-[44px] disabled:opacity-50"
         >
           <Download className={`w-5 h-5 ${isSaving ? "animate-bounce" : ""}`} />
           <span>{isSaving ? "SAVING..." : "SAVE RESULT"}</span>
