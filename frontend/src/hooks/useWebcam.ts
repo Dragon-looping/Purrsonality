@@ -3,7 +3,7 @@ import Webcam from "react-webcam";
 import { useAppStore, type CameraState } from "../store/useAppStore";
 
 export const CAMERA_MESSAGES = {
-  denied: "Paws off? We need camera access.",
+  denied: "We need camera access to determine your purrsonality.",
   unavailable: "The cat stole your webcam.",
   no_face: "Are you even there, human?",
   granted: "Camera locked and loaded. Purr-fect.",

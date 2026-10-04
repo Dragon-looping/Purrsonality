@@ -9,6 +9,7 @@ import mediapipe as mp
 import numpy as np
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 # Ensure project root is in sys.path to access the existing cv package
@@ -17,7 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Reuse existing CV modules without duplicating their logic
-from cv.cat_matcher import match_cat
+from cv.cat_matcher import get_memes_base_dir, match_cat
 from cv.expression_classifier import classify_expression
 from cv.face_landmarks import get_model_path
 from cv.facial_features import (
@@ -88,15 +89,25 @@ app = FastAPI(
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:[0-9]+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount local memes directory for browser static-file serving (/memes/<category>/<filename>)
+memes_directory = get_memes_base_dir()
+if memes_directory.exists() and memes_directory.is_dir():
+    app.mount("/memes", StaticFiles(directory=str(memes_directory)), name="memes")
 
 
 # ==============================================================================
@@ -122,6 +133,7 @@ class CatResponse(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None
     image_path: Optional[str] = None
+    image_url: Optional[str] = None
     caption: Optional[str] = None
 
 
@@ -174,6 +186,23 @@ def decode_base64_image(image_str: str) -> np.ndarray:
     return image
 
 
+def build_image_url(image_path: Optional[str]) -> Optional[str]:
+    """Converts a local file path into a static URL path (/memes/category/filename)."""
+    if not image_path:
+        return None
+    try:
+        memes_base = get_memes_base_dir()
+        p = Path(image_path)
+        full_path = PROJECT_ROOT / image_path if not p.is_absolute() else p
+        rel_to_memes = full_path.resolve().relative_to(memes_base.resolve()).as_posix()
+        return f"/memes/{rel_to_memes}"
+    except Exception:
+        parts = Path(image_path).parts
+        if len(parts) >= 2:
+            return f"/memes/{parts[-2]}/{parts[-1]}"
+        return f"/memes/{Path(image_path).name}"
+
+
 # ==============================================================================
 # API Endpoints
 # ==============================================================================
@@ -196,7 +225,6 @@ async def predict(payload: PredictRequest):
     """
     global landmarker
     if landmarker is None:
-        # Fallback dynamic initialization if needed
         model_path = get_model_path()
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.FaceLandmarkerOptions(
@@ -243,6 +271,7 @@ async def predict(payload: PredictRequest):
                 id=no_face_cat.get("id"),
                 name=no_face_cat.get("cat_name"),
                 image_path=no_face_cat.get("image_path"),
+                image_url=build_image_url(no_face_cat.get("image_path")),
                 caption=no_face_cat.get("caption"),
             ),
             features=None,
@@ -295,11 +324,13 @@ async def predict(payload: PredictRequest):
     min_y, max_y = max(0, int(min(ys))), min(height, int(max(ys)))
     bbox = [min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y)]
 
-    # 7. Match expression to cat meme
+    # 7. Match expression to real local cat meme
     cat_entry = match_cat(label)
+    image_path = cat_entry.get("image_path")
+    image_url = build_image_url(image_path)
 
     # 8. Construct response
-    # Note: Heuristic confidence represents deterministic rule fulfillment
+    # Deterministic heuristic confidence indicating rule-based match
     deterministic_confidence = 0.95
 
     return PredictResponse(
@@ -310,7 +341,8 @@ async def predict(payload: PredictRequest):
         cat=CatResponse(
             id=cat_entry.get("id"),
             name=cat_entry.get("cat_name"),
-            image_path=cat_entry.get("image_path"),
+            image_path=image_path,
+            image_url=image_url,
             caption=cat_entry.get("caption"),
         ),
         features=FeaturesResponse(

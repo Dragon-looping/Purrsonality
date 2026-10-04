@@ -8,25 +8,9 @@ export const BRAND_COLORS = {
   CARD_SURFACE: "#13131e",
 } as const;
 
-export const ROTATING_STATUS_MESSAGES = [
-  "sniffing your vibes...",
-  "measuring sass level...",
-  "consulting the cat council...",
-  "calculating your purr-centage...",
-  "checking for zoomies...",
-  "interrogating the orange cat braincell...",
-  "matching whisker frequency...",
-] as const;
-
-export const MOCK_CAT_PREDICTIONS = [
-  "Grumpy",
-  "Shook",
-  "Crying",
-  "Judging",
-  "Banana",
-  "Huh-cat",
-  "Popcat",
-  "Screaming",
-  "Smug",
-  "Sleepy",
+export const ROTATING_LOADING_MESSAGES = [
+  "CONSULTING THE CAT COUNCIL...",
+  "MEASURING YOUR CHAOS...",
+  "SNIFFING YOUR VIBES...",
+  "CALCULATING PURR-CENTAGE...",
 ] as const;

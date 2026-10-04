@@ -1,52 +1,106 @@
-import { MOCK_CAT_PREDICTIONS } from "../config/theme";
+/**
+ * Real API client for Purrsonality CV Engine.
+ * Connects frontend directly to the local Python FastAPI backend at http://127.0.0.1:8000.
+ */
 
-export interface PredictionItem {
+export interface Prediction {
   label: string;
   confidence: number;
 }
 
-export interface PredictionResponse {
-  predictions: PredictionItem[];
-  bbox: [number, number, number, number]; // [x, y, width, height]
-  status: "success" | "no_face" | "error";
-  message?: string;
+// Backward-compatibility alias
+export type PredictionItem = Prediction;
+
+export interface CatResult {
+  id?: string | null;
+  name?: string | null;
+  image_path?: string | null;
+  image_url?: string | null;
+  caption?: string | null;
+}
+
+export interface FacialFeatures {
+  ear_avg: number;
+  mar: number;
+  mouth_width: number;
+  smile: number;
+}
+
+export interface PredictResponse {
+  predictions: Prediction[];
+  bbox: [number, number, number, number] | null;
+  cat?: CatResult | null;
+  features?: FacialFeatures | null;
+}
+
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
+/**
+ * Checks if the Python FastAPI CV backend is running and reachable.
+ */
+export async function checkBackendHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data?.status === "ok";
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Predicts facial expression / cat vibe.
- * Supports VITE_MOCK=true (default for Step 13).
+ * Resolves the absolute browser URL for a cat meme image served statically by FastAPI.
+ */
+export function getCatImageUrl(cat?: CatResult | null): string | null {
+  if (!cat || !cat.image_url) return null;
+  if (cat.image_url.startsWith("http://") || cat.image_url.startsWith("https://")) {
+    return cat.image_url;
+  }
+  const cleanPath = cat.image_url.startsWith("/") ? cat.image_url : `/${cat.image_url}`;
+  return `${API_BASE_URL}${cleanPath}`;
+}
+
+/**
+ * Sends a captured webcam frame to the real Python CV backend for
+ * landmark detection, feature calculation, expression classification, and meme matching.
  */
 export async function predictExpression(
-  _imageSource?: string | null
-): Promise<PredictionResponse> {
-  const isMock = import.meta.env.VITE_MOCK !== "false";
-
-  if (isMock) {
-    // Simulate lightweight network / analysis latency
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
-    // Random choice from requested mock pool
-    const randomLabel =
-      MOCK_CAT_PREDICTIONS[
-        Math.floor(Math.random() * MOCK_CAT_PREDICTIONS.length)
-      ];
-    const randomConfidence = +(0.75 + Math.random() * 0.23).toFixed(2);
-
-    // Mock bounding box centered in a 640x480 frame
-    const mockBbox: [number, number, number, number] = [160, 90, 320, 300];
-
-    return {
-      predictions: [
-        {
-          label: randomLabel,
-          confidence: randomConfidence,
-        },
-      ],
-      bbox: mockBbox,
-      status: "success",
-    };
+  imageDataUrl: string
+): Promise<PredictResponse> {
+  if (!imageDataUrl || typeof imageDataUrl !== "string") {
+    throw new Error("Invalid webcam capture image data.");
   }
 
-  // Fallback placeholder when live backend is connected in future steps
-  throw new Error("Live CV API endpoint not yet configured. Use VITE_MOCK=true.");
+  const response = await fetch(`${API_BASE_URL}/predict`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      image: imageDataUrl,
+    }),
+  });
+
+  if (!response.ok) {
+    let errorDetail = `Backend HTTP error ${response.status}`;
+    try {
+      const errJson = await response.json();
+      if (errJson?.detail) {
+        errorDetail = typeof errJson.detail === "string"
+          ? errJson.detail
+          : JSON.stringify(errJson.detail);
+      }
+    } catch {
+      // Fallback to HTTP error
+    }
+    throw new Error(errorDetail);
+  }
+
+  const result: PredictResponse = await response.json();
+  return result;
 }
