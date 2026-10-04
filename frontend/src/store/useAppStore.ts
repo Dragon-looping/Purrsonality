@@ -21,6 +21,7 @@ interface AppState {
   capturedImage: string | null;
   predictResult: PredictResponse | null;
   scanError: string | null;
+  isFinalized: boolean;
 
   // Step 16: Live Mode state
   liveMode: boolean;
@@ -38,6 +39,7 @@ interface AppState {
   setIsLaunching: (isLaunching: boolean) => void;
   setCapturedImage: (capturedImage: string | null) => void;
   setPredictResult: (predictResult: PredictResponse | null) => void;
+  setIsFinalized: (isFinalized: boolean) => void;
   setScanError: (scanError: string | null) => void;
   toggleMute: () => void;
   resetScan: () => void;
@@ -66,6 +68,7 @@ export const useAppStore = create<AppState>((set) => ({
   capturedImage: null,
   predictResult: null,
   scanError: null,
+  isFinalized: false,
 
   // Step 16 state defaults
   liveMode: false,
@@ -94,6 +97,7 @@ export const useAppStore = create<AppState>((set) => ({
       scanError: null,
     });
   },
+  setIsFinalized: (isFinalized) => set({ isFinalized }),
   setScanError: (scanError) => set({ scanError }),
   toggleMute: () => set((state) => ({ isMuted: !state.isMuted })),
   resetScan: () =>
@@ -103,6 +107,7 @@ export const useAppStore = create<AppState>((set) => ({
       capturedImage: null,
       predictResult: null,
       scanError: null,
+      isFinalized: false,
       livePrediction: null,
       liveLoading: false,
       bbox: null,
@@ -114,7 +119,6 @@ export const useAppStore = create<AppState>((set) => ({
   setLiveMode: (liveMode) =>
     set({
       liveMode,
-      // If turning live mode off, clear live prediction and bbox
       ...(!liveMode ? { livePrediction: null, liveLoading: false, bbox: null } : {}),
     }),
   toggleLiveMode: () =>

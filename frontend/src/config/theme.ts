@@ -14,3 +14,18 @@ export const ROTATING_LOADING_MESSAGES = [
   "SNIFFING YOUR VIBES...",
   "CALCULATING PURR-CENTAGE...",
 ] as const;
+
+export const EXPRESSION_BLURBS: Record<string, string> = {
+  Happy: "Certified good-vibes gremlin. Your nine lives are currently booked and busy.",
+  Surprised: "Your brain just encountered a side quest it absolutely did not prepare for.",
+  Neutral: "Emotionally buffering... but somehow still photogenic.",
+  "Eyes Closed": "Bro has temporarily left the simulation.",
+};
+
+export function getExpressionBlurb(expression: string | null | undefined): string {
+  if (!expression) return "Pure unadulterated feline chaos energy.";
+  const key = Object.keys(EXPRESSION_BLURBS).find(
+    (k) => k.toLowerCase() === expression.toLowerCase().trim()
+  );
+  return key ? EXPRESSION_BLURBS[key] : "Mysterious vibes detected from the cat council.";
+}

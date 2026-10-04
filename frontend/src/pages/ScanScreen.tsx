@@ -22,6 +22,7 @@ import {
   getCatImageUrl,
 } from "../api/predict";
 import { ROTATING_LOADING_MESSAGES } from "../config/theme";
+import { ResultView } from "../components/ResultView";
 
 export const ScanScreen: React.FC = () => {
   const {
@@ -38,6 +39,8 @@ export const ScanScreen: React.FC = () => {
     scanError,
     setScanError,
     resetScan,
+    isFinalized,
+    setIsFinalized,
 
     // Step 16 LIVE Mode state & actions
     liveMode,
@@ -117,7 +120,8 @@ export const ScanScreen: React.FC = () => {
       !isMountedRef.current ||
       !liveMode ||
       inFlightRef.current ||
-      cameraState !== "granted"
+      cameraState !== "granted" ||
+      isFinalized
     ) {
       return;
     }
@@ -133,7 +137,7 @@ export const ScanScreen: React.FC = () => {
 
     try {
       const res = await predictExpression(frame, controller.signal);
-      if (isMountedRef.current && liveMode) {
+      if (isMountedRef.current && liveMode && !isFinalized) {
         setLivePrediction(res);
         setBackendStatus("online");
         setScanError(null);
@@ -142,7 +146,7 @@ export const ScanScreen: React.FC = () => {
       if (err instanceof DOMException && err.name === "AbortError") {
         return; // Request was aborted as expected
       }
-      if (isMountedRef.current && liveMode) {
+      if (isMountedRef.current && liveMode && !isFinalized) {
         const message = err instanceof Error ? err.message : String(err);
         if (
           message.includes("Failed to fetch") ||
@@ -162,6 +166,7 @@ export const ScanScreen: React.FC = () => {
   }, [
     liveMode,
     cameraState,
+    isFinalized,
     captureFrame,
     setLiveLoading,
     setLivePrediction,
@@ -171,7 +176,7 @@ export const ScanScreen: React.FC = () => {
 
   // LIVE loop schedule
   useEffect(() => {
-    if (liveMode && cameraState === "granted" && !scanError) {
+    if (liveMode && cameraState === "granted" && !scanError && !isFinalized) {
       // Run first pass immediately
       runLiveIteration();
 
@@ -201,7 +206,23 @@ export const ScanScreen: React.FC = () => {
       }
       inFlightRef.current = false;
     };
-  }, [liveMode, cameraState, scanError, runLiveIteration, setLiveLoading]);
+  }, [liveMode, cameraState, scanError, isFinalized, runLiveIteration, setLiveLoading]);
+
+  // Lock in the live result and transition to polished Result View
+  const handleLockInLive = useCallback(() => {
+    if (!livePrediction || livePrediction.predictions.length === 0) return;
+    const frame = captureFrame() || capturedImage;
+    setCapturedImage(frame);
+    setPredictResult(livePrediction);
+    setIsFinalized(true);
+  }, [
+    livePrediction,
+    captureFrame,
+    capturedImage,
+    setCapturedImage,
+    setPredictResult,
+    setIsFinalized,
+  ]);
 
   // SNAP action: captures one frame and requests single prediction from FastAPI
   const handleSnapAndPredict = useCallback(async () => {
@@ -220,6 +241,9 @@ export const ScanScreen: React.FC = () => {
     try {
       const response = await predictExpression(frame);
       setPredictResult(response);
+      if (response.predictions && response.predictions.length > 0) {
+        setIsFinalized(true);
+      }
     } catch (err: unknown) {
       console.error("Predict error:", err);
       const message = err instanceof Error ? err.message : String(err);
@@ -242,13 +266,13 @@ export const ScanScreen: React.FC = () => {
     setCapturedImage,
     setIsAnalyzing,
     setPredictResult,
+    setIsFinalized,
     setScanError,
   ]);
 
-  // Active prediction states
-  const activeSnapPrediction = predictResult?.predictions?.[0];
-  const snapCatImageUrl = getCatImageUrl(predictResult?.cat);
-  const isSnapNoFace = predictResult && predictResult.predictions.length === 0;
+  const hasValidLiveFace = Boolean(
+    livePrediction && livePrediction.predictions.length > 0
+  );
 
   const activeLivePrediction = livePrediction?.predictions?.[0];
   const liveCatImageUrl = getCatImageUrl(livePrediction?.cat);
@@ -297,8 +321,8 @@ export const ScanScreen: React.FC = () => {
       );
     }
 
-    // 2. No Face Detected
-    if (isSnapNoFace) {
+    // 2. No Face Detected (Snap)
+    if (predictResult && predictResult.predictions.length === 0) {
       return (
         <motion.div
           key="no-face"
@@ -339,118 +363,7 @@ export const ScanScreen: React.FC = () => {
       );
     }
 
-    // 3. Snap Result View
-    if (predictResult && activeSnapPrediction) {
-      return (
-        <motion.div
-          key="result-view"
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          className="flex flex-col items-center text-center"
-        >
-          <div className="mb-4">
-            <span className="font-arcade text-xs sm:text-sm text-brand-lime tracking-widest block mb-1">
-              ANALYSIS COMPLETE // MATCH CONFIRMED
-            </span>
-            <h2 className="font-heading text-3xl sm:text-5xl text-white tracking-wider">
-              YOUR PURRSONALITY IS:{" "}
-              <span className="text-brand-yellow underline decoration-brand-pink decoration-4">
-                {activeSnapPrediction.label.toUpperCase()}
-              </span>
-            </h2>
-          </div>
-
-          <div className="bg-[#1c1c2e] border-3 border-black px-5 py-3 shadow-hard-sm max-w-2xl w-full mb-6">
-            <h3 className="font-heading text-2xl sm:text-3xl text-brand-pink mb-1">
-              {predictResult.cat?.name || `${activeSnapPrediction.label} Cat`}
-            </h3>
-            {predictResult.cat?.caption && (
-              <p className="font-meme text-base sm:text-lg text-gray-200 font-bold italic">
-                "{predictResult.cat.caption}"
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-6 my-2 w-full">
-            {/* Left Card: Captured User Face */}
-            <div className="neo-card bg-[#181828] border-4 border-black p-3 sm:p-4 flex flex-col items-center shadow-hard">
-              <div className="flex items-center justify-between w-full mb-2 border-b-2 border-black pb-2">
-                <span className="neo-badge bg-brand-lime text-black font-arcade text-xs">
-                  YOUR FACE
-                </span>
-                <span className="font-mono text-[11px] text-gray-400">
-                  SNAP CAPTURE
-                </span>
-              </div>
-
-              <div className="relative w-full aspect-[4/3] bg-black border-3 border-black overflow-hidden flex items-center justify-center">
-                {capturedImage ? (
-                  <img
-                    src={capturedImage}
-                    alt="Your Captured Face"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-gray-400 font-mono text-xs">
-                    No captured frame
-                  </div>
-                )}
-                <div className="absolute inset-0 crt-scanlines pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Center VS Badge */}
-            <div className="flex flex-col items-center justify-center select-none py-2">
-              <div className="w-14 h-14 sm:w-18 sm:h-18 md:w-20 md:h-20 bg-brand-yellow text-black border-4 border-black shadow-hard-lg rounded-full flex items-center justify-center rotate-[-6deg] transform hover:scale-110 transition-transform">
-                <span className="font-heading text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-widest text-black drop-shadow-[2px_2px_0px_#FF2E93]">
-                  VS
-                </span>
-              </div>
-            </div>
-
-            {/* Right Card: Matched Real Cat Meme */}
-            <div className="neo-card bg-[#181828] border-4 border-black p-3 sm:p-4 flex flex-col items-center shadow-hard">
-              <div className="flex items-center justify-between w-full mb-2 border-b-2 border-black pb-2">
-                <span className="neo-badge bg-brand-pink text-white font-arcade text-xs">
-                  MATCHED CAT
-                </span>
-                <span className="font-mono text-[11px] text-brand-yellow font-bold">
-                  {Math.round(activeSnapPrediction.confidence * 100)}% VIBE
-                </span>
-              </div>
-
-              <div className="relative w-full aspect-[4/3] bg-black border-3 border-black overflow-hidden flex items-center justify-center">
-                {snapCatImageUrl ? (
-                  <img
-                    src={snapCatImageUrl}
-                    alt={predictResult.cat?.name || "Matched Cat Meme"}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="p-4 text-center text-gray-400 font-mono text-xs">
-                    No local cat image found
-                  </div>
-                )}
-                <div className="absolute inset-0 crt-scanlines pointer-events-none" />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-8">
-            <button
-              onClick={resetScan}
-              className="neo-btn-pink text-xl sm:text-2xl px-10 py-4 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group"
-            >
-              <RotateCcw className="w-6 h-6 mr-2 group-hover:-rotate-90 transition-transform" />
-              SCAN AGAIN
-            </button>
-          </div>
-        </motion.div>
-      );
-    }
-
-    // 4. Default: Live Webcam Standby for Snap
+    // 3. Default: Live Webcam Standby for Snap
     return (
       <motion.div
         key="snap-standby"
@@ -625,7 +538,7 @@ export const ScanScreen: React.FC = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="w-full"
+        className="w-full flex flex-col items-center"
       >
         {/* Top Live Feed Header Strip */}
         <div className="w-full flex items-center justify-between border-b-4 border-black pb-3 mb-4">
@@ -643,7 +556,7 @@ export const ScanScreen: React.FC = () => {
         </div>
 
         {/* 2-Column Responsive Layout: Webcam Stream vs Live Cat Preview */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-6 items-start">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-6 items-start">
           {/* Column 1: Live Webcam Viewport with Dynamic Bounding Box */}
           <div className="flex flex-col">
             <div className="relative w-full aspect-video sm:aspect-[4/3] md:aspect-video bg-black border-4 border-black overflow-hidden flex items-center justify-center rounded-xs shadow-hard">
@@ -890,6 +803,24 @@ export const ScanScreen: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* STEP 17: Prominent "LOCK IT IN // REVEAL MY PURRSONALITY" Button */}
+        <div className="mt-6 flex flex-col items-center w-full max-w-2xl">
+          <button
+            onClick={handleLockInLive}
+            disabled={!hasValidLiveFace || cameraState !== "granted"}
+            className="neo-btn-pink text-xl sm:text-2xl px-10 py-5 border-4 border-black shadow-hard-lg hover:shadow-hard-xl transition-all cursor-pointer group disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-3 w-full"
+          >
+            <Sparkles className="w-7 h-7 group-hover:rotate-12 transition-transform" />
+            <span>LOCK IT IN // REVEAL MY PURRSONALITY</span>
+            <Zap className="w-6 h-6 text-brand-yellow fill-brand-yellow animate-pulse" />
+          </button>
+          {!hasValidLiveFace && cameraState === "granted" && (
+            <p className="text-xs font-mono text-gray-400 mt-2.5">
+              💡 Face the camera to lock in your live purrsonality match!
+            </p>
+          )}
+        </div>
       </motion.div>
     );
   };
@@ -910,61 +841,63 @@ export const ScanScreen: React.FC = () => {
           BACK TO HOME
         </button>
 
-        {/* Mode Switcher: LIVE vs 1-SHOT SNAP */}
-        <div className="flex items-center gap-1.5 bg-[#12121d] p-1 border-3 border-black shadow-hard-sm">
-          <button
-            onClick={() => setLiveMode(true)}
-            className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
-              liveMode
-                ? "bg-brand-lime text-black font-bold shadow-hard-sm"
-                : "bg-transparent text-gray-400 hover:text-white"
-            }`}
-          >
-            <Radio
-              className={`w-3.5 h-3.5 ${
-                liveMode ? "animate-pulse text-black" : "text-gray-500"
+        {/* Mode Switcher: LIVE vs 1-SHOT SNAP (only shown when not on finalized result screen) */}
+        {!isFinalized && (
+          <div className="flex items-center gap-1.5 bg-[#12121d] p-1 border-3 border-black shadow-hard-sm">
+            <button
+              onClick={() => setLiveMode(true)}
+              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                liveMode
+                  ? "bg-brand-lime text-black font-bold shadow-hard-sm"
+                  : "bg-transparent text-gray-400 hover:text-white"
               }`}
-            />
-            <span>LIVE STREAM</span>
-            {liveMode && (
-              <span className="w-2 h-2 rounded-full bg-red-600 animate-ping inline-block" />
-            )}
-          </button>
+            >
+              <Radio
+                className={`w-3.5 h-3.5 ${
+                  liveMode ? "animate-pulse text-black" : "text-gray-500"
+                }`}
+              />
+              <span>LIVE STREAM</span>
+              {liveMode && (
+                <span className="w-2 h-2 rounded-full bg-red-600 animate-ping inline-block" />
+              )}
+            </button>
 
-          <button
-            onClick={() => setLiveMode(false)}
-            className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
-              !liveMode
-                ? "bg-brand-pink text-white font-bold shadow-hard-sm"
-                : "bg-transparent text-gray-400 hover:text-white"
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>1-SHOT SNAP</span>
-          </button>
-        </div>
+            <button
+              onClick={() => setLiveMode(false)}
+              className={`px-3 py-1.5 text-xs font-arcade tracking-wider border-2 border-black flex items-center gap-1.5 transition-all cursor-pointer ${
+                !liveMode
+                  ? "bg-brand-pink text-white font-bold shadow-hard-sm"
+                  : "bg-transparent text-gray-400 hover:text-white"
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>1-SHOT SNAP</span>
+            </button>
+          </div>
+        )}
 
         {/* Backend Health Status Indicator */}
         <div>
           {backendStatus === "online" ? (
-            <div className="inline-flex items-center gap-2 bg-[#122216] border-3 border-black px-3 py-1.5 shadow-hard-sm">
-              <span className="w-2 h-2 rounded-full bg-brand-lime animate-pulse inline-block" />
+            <div className="inline-flex items-center gap-2 bg-[#122216] border-3 border-black px-3.5 py-1.5 shadow-hard-sm">
+              <span className="w-2.5 h-2.5 rounded-full bg-brand-lime animate-pulse inline-block" />
               <span className="font-arcade text-xs text-brand-lime tracking-wider flex items-center gap-1.5">
                 <CheckCircle2 className="w-3.5 h-3.5 text-brand-lime" />
                 CV ENGINE: ONLINE
               </span>
             </div>
           ) : backendStatus === "offline" ? (
-            <div className="inline-flex items-center gap-2 bg-[#2d1420] border-3 border-black px-3 py-1.5 shadow-hard-sm">
-              <span className="w-2 h-2 rounded-full bg-brand-pink inline-block" />
+            <div className="inline-flex items-center gap-2 bg-[#2d1420] border-3 border-black px-3.5 py-1.5 shadow-hard-sm">
+              <span className="w-2.5 h-2.5 rounded-full bg-brand-pink inline-block" />
               <span className="font-arcade text-xs text-brand-pink tracking-wider flex items-center gap-1.5">
                 <XCircle className="w-3.5 h-3.5 text-brand-pink" />
                 CV ENGINE: OFFLINE
               </span>
             </div>
           ) : (
-            <div className="inline-flex items-center gap-2 bg-[#1c1c28] border-3 border-black px-3 py-1.5 shadow-hard-sm">
-              <span className="w-2 h-2 rounded-full bg-brand-yellow animate-ping inline-block" />
+            <div className="inline-flex items-center gap-2 bg-[#1c1c28] border-3 border-black px-3.5 py-1.5 shadow-hard-sm">
+              <span className="w-2.5 h-2.5 rounded-full bg-brand-yellow animate-ping inline-block" />
               <span className="font-arcade text-xs text-brand-yellow tracking-wider">
                 CHECKING CV ENGINE...
               </span>
@@ -976,7 +909,25 @@ export const ScanScreen: React.FC = () => {
       {/* Main Container */}
       <div className="w-full max-w-4xl neo-card bg-[#141420] border-4 border-black p-4 sm:p-6 md:p-8 shadow-hard-xl relative">
         <AnimatePresence mode="wait">
-          {liveMode ? renderLiveContent() : renderSnapContent()}
+          {isFinalized && predictResult && predictResult.predictions.length > 0 ? (
+            <motion.div
+              key="finalized-result"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="w-full"
+            >
+              <ResultView
+                predictResult={predictResult}
+                capturedImage={capturedImage}
+                onScanAgain={resetScan}
+              />
+            </motion.div>
+          ) : liveMode ? (
+            renderLiveContent()
+          ) : (
+            renderSnapContent()
+          )}
         </AnimatePresence>
       </div>
     </div>
